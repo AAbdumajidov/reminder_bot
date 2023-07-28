@@ -1,14 +1,18 @@
 import threading
 import time
 import sqlite3
+from telegram import Bot
+import pandas as pd
 
 import telegram.ext
-from telegram.ext import Updater
+from telegram.ext import Updater, Filters, MessageHandler
 
 TOKEN = open("TOKEN.txt", "r").read()
-
-conn = sqlite3.connect("database.db", check_same_thread=False)
+bot = Bot(token=TOKEN)
+conn = sqlite3.connect("database1.db", check_same_thread=False)
 cursor = conn.cursor()
+
+
 
 updater = Updater(TOKEN, use_context=True)
 disp = updater.dispatcher
@@ -18,8 +22,58 @@ current_date = None
 
 
 def start(update, context):
-    update.message.reply_text("Hello World! /new to create new reminder! /n /addfile")
+    update.message.reply_text("Hello World! /new to create new reminder! /addfile")
+    global cursor
+    user_id = update.message.chat_id
 
+    cursor.execute("SELECT * FROM user WHERE id=?", (user_id,))
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO user (id) VALUES (?)", (user_id,))
+    conn.commit()
+
+
+def addfile(update, context):
+    context.bot.send_message(chat_id=update.effective_chat.id, text="alomu alaykum! Faylni yuboring.")
+
+
+def save_file(update, context):
+    file_id = update.message.document.file_id
+    file_name = update.message.document.file_name
+    file_path = context.bot.get_file(file_id).file_path
+
+    # Faylni olish va saqlash
+    context.bot.get_file(file_id).download(file_name)
+
+    user_id = update.message.from_user.id
+
+    df = pd.read_excel(file_path)
+
+    for index, row in df.iterrows():
+        cell_value_a = row['date']
+        cell_value_b = row['name']
+
+        print(cell_value_a, cell_value_b)
+        print(user_id)
+
+
+    # Ma'lumotlar bazasiga ulashish
+        conn = sqlite3.connect("database1.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO birthday_reminder(date, name, reminder, user_id) VALUES (?, ?, ?, ?)",
+                       (cell_value_a, cell_value_b, 0, user_id))
+        conn.commit()
+        conn.close()
+
+        df = pd.read_excel(file_name)
+
+        conn = sqlite3.connect('database.db')
+
+        df.to_sql('birthday_reminder', conn, if_exists='replace', index=False)
+
+        conn.close()
+
+
+    context.bot.send_message(chat_id=update.effective_chat.id, text="Fayl saqlandi!")
 
 def new_reminder(update, context):
     update.message.reply_text("Whose birthday shall I reminder you of?")
@@ -40,9 +94,7 @@ def get_date(update, context):
     current_date = update.message.text
     user_id = update.message.chat_id
 
-    cursor.execute("SELECT * FROM user WHERE id=?", (user_id,))
-    if not cursor.fetchone():
-        cursor.execute("INSERT INTO user (id) VALUES (?)", (user_id,))
+
 
     cursor.execute("INSERT INTO birthday_reminder (user_id, name, date, reminder) VALUES (?, ?, ?, ?)",
                    (user_id, current_name, current_date, 0))
@@ -69,12 +121,12 @@ def do_reminder():
             row_id = row[0]
             name = row[2]
             user_id = row[4]
-            updater.bot.send_message(chat_id=user_id, text=f"It's {name}'s birthday today!")
-            cursor.execute("UPDATE birthday_reminder SET reminder = 1 WHERE id = ?", (row_id,))
-            print(row)
-            print(row_id)
-            print(name)
-            print(user_id)
+            cursor.execute("SELECT * FROM user")
+            users = cursor.fetchall()
+            for user in users:
+                user_id = user[0]
+                updater.bot.send_message(chat_id=user_id, text=f"It's {name}'s birthday today!")
+                cursor.execute("UPDATE birthday_reminder SET reminder = 1 WHERE id = ?", (row_id,))
             conn.commit()
 
         time.sleep(10)
@@ -89,6 +141,9 @@ conv_handler = telegram.ext.ConversationHandler(
 )
 
 disp.add_handler(telegram.ext.CommandHandler("start", start))
+disp.add_handler(telegram.ext.CommandHandler("addfile", addfile))
+
+updater.dispatcher.add_handler(MessageHandler(Filters.document, save_file))
 disp.add_handler(conv_handler)
 
 threading.Thread(target=do_reminder).start()

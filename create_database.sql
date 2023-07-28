@@ -1,5 +1,6 @@
 CREATE TABLE user(
     id INTEGER PRIMARY KEY
+
 );
 
 CREATE TABLE birthday_reminder(
